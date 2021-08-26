@@ -1,10 +1,11 @@
 from number_to_emoji import number_to_emoji
+import random
 
 class StoryBoisEvent:
     eventsRunning = 0
     states = ("prompt", "voting", "story", "end")
 
-    def __init__(self, promptThemeMessageReference=None, promptMessagesReference=[], storyMessageReference=None, timePrompt=1, timeVote=1, timeStory=7):
+    def __init__(self, timePrompt=1, timeVote=1, timeStory=7, theme=""):
         self.timePrompt = timePrompt
         self.timeVote = timeVote
         self.timeStory = timeStory
@@ -14,15 +15,24 @@ class StoryBoisEvent:
 
         # Need to separate the theme announcement from the user submitted prompts. Messages have a 2000 character limit.
         # These variables that hold message Reference links
-        self.promptThemeMessageReference = promptThemeMessageReference
-        self.promptMessagesReference = promptMessagesReference
-        self.storyMessageReference = storyMessageReference
+        self.promptThemeMessageReference = None
+        self.promptMessagesReference = []
+        self.storyMessageReference = None
+        self.votingMessageReference = None
+
+        self.theme = theme
+        self.themeUser = ""
+        self.winningPrompt = ""
+        self.winningPromptUser = ""
+
+        self.promptSenders = {}
 
         self.eventsRunning += 1
         # db["eventsRunning"] = self.eventsRunning
     
 
     def __del__(self):
+        print("Class destroyed")
         self.eventsRunning -= 1
 
 
@@ -42,6 +52,7 @@ class StoryBoisEvent:
                 self.timeStory -= 1
                 if self.timeStory <= 0:
                     self.currentState = self.states[3]
+                    #Delete Itself from Database
 
             return self.currentState
 
@@ -150,8 +161,9 @@ class StoryBoisEvent:
     # Voting will be done with custom emoji. Number 1-20
     def select_winner(self, indexes):
         if(self.currentState == "story"):
-            # Select a random winner from indexes list.
-            pass
+            self.winningPrompt = self.prompts[random.choice(indexes)]
+            self.winningPromptUser = int(self.winningPrompt[self.winningPrompt.rfind('|')+4:-1])
+            self.winningPromptUser = self.promptSenders[self.winningPromptUser]
 
 
     def generate_story_message(self, prompt):
