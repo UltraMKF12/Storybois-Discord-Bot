@@ -1,6 +1,7 @@
 from number_to_emoji import number_to_emoji
 import random
-from replit import db
+import pickle
+import os
 
 class StoryBoisEvent:
     eventsRunning = 0
@@ -28,16 +29,27 @@ class StoryBoisEvent:
         self.winningPrompt = ""
         self.winningPromptUser = ""
 
-        self.promptSenders = {}
         self.user_to_story_link = {}
 
         self.eventsRunning += 1
-        # db["eventsRunning"] = self.eventsRunning
+        
+
+        self.promptThemeMessageReferenceID = []
+        self.promptMessagesReferenceID = []
+
+        self.winnerMessageReferenceID = None
+        self.storyMessageReferenceID = None
+        self.votingMessageReferenceID = None
+
+        self.loaded = False
     
 
     def __del__(self):
         print("Class destroyed")
         self.eventsRunning -= 1
+
+        if os.path.isfile("storybois.data"):
+            os.remove("storybois.data")
 
 
     # Need to update the current state every day at 00:00. We need this to lock channels, start voting, and start story submissions.
@@ -58,8 +70,57 @@ class StoryBoisEvent:
                     self.currentState = self.states[3]
                     #Delete Itself from Database
 
+            self.save_data()
             return self.currentState
 
+    def save_data(self):
+        self.database = {
+            "timePrompt": self.timePrompt,
+            "timeVote": self.timeVote,
+            "timeStory": self.timeStory,
+            "prompts": self.prompts,
+            "currentState": self.currentState,
+            "promptThemeMessageReferenceID": self.promptThemeMessageReferenceID,
+            "promptMessagesReferenceID": self.promptMessagesReferenceID,
+            "winnerMessageReferenceID": self.winnerMessageReferenceID,
+            "storyMessageReferenceID": self.storyMessageReferenceID,
+            "votingMessageReferenceID": self.votingMessageReferenceID,
+            "theme": self.theme,
+            "themeUser": self.themeUser,
+            "winningPrompt": self.winningPrompt,
+            "winningPromptUser": self.winningPromptUser,
+            "user_to_story_link": self.user_to_story_link,
+        }
+
+        with open("storybois.data", "wb") as file:
+            pickle.dump(self.database, file)
+
+
+    def load_data(self):
+        if os.path.isfile("storybois.data"):
+            with open("storybois.data", "rb") as file:
+                print("Storybois event data found and loaded")
+                self.database = pickle.load(file)
+                self.loaded = True
+
+            self.timePrompt = self.database["timePrompt"]
+            self.timeVote = self.database["timeVote"]
+            self.timeStory = self.database["timeStory"]
+            self.prompts = self.database["prompts"]
+            self.currentState = self.database["currentState"]
+            self.promptThemeMessageReferenceID = self.database["promptThemeMessageReferenceID"]
+            self.promptMessagesReferenceID = self.database["promptMessagesReferenceID"]
+            self.winnerMessageReferenceID = self.database["winnerMessageReferenceID"]
+            self.storyMessageReferenceID = self.database["storyMessageReferenceID"]
+            self.votingMessageReferenceID = self.database["votingMessageReferenceID"]
+            self.theme = self.database["theme"]
+            self.themeUser = self.database["themeUser"]
+            self.winningPrompt = self.database["winningPrompt"]
+            self.winningPromptUser = self.database["winningPromptUser"]
+            self.user_to_story_link = self.database["user_to_story_link"]
+            
+        else:
+            print("Couldn't load event data from file!")
 
 
     # ------------------------
@@ -68,21 +129,21 @@ class StoryBoisEvent:
     def add_prompt(self, prompt, userid):
         if(self.currentState == "prompt"):
             self.prompts.append(f"{prompt} | <@{userid}>")
-            # Here comes saving prompts to database
+            self.save_data()
 
 
     def edit_prompt(self, newPrompt, userid, index):
         if(self.currentState == "prompt"):
             if self.compare_userid_to_prompt(self.prompts[index], userid):
                 self.prompts[index] = f"{newPrompt} | <@{userid}>"
-                # Here comes saving prompts to database
+                self.save_data()
     
 
     def delete_prompt(self, userid, index):
         if(self.currentState == "prompt"):
             if self.compare_userid_to_prompt(self.prompts[index], userid):
                 del self.prompts[index]
-                self.save_prompts_to_database()
+                self.save_data()
 
     # Remake this method to work for separated messages
     # Possible solution: Save the last ID a message containts, Set up 3 different messages.
@@ -143,11 +204,6 @@ class StoryBoisEvent:
             return True
         else:
             return False
-    
-
-    def save_prompts_to_database(self):
-        # Implement saving to repl.it database dictionary named db
-        pass
 
 
 
@@ -167,7 +223,7 @@ class StoryBoisEvent:
         if(self.currentState == "story"):
             self.winningPrompt = self.prompts[random.choice(indexes)]
             self.winningPromptUser = int(self.winningPrompt[self.winningPrompt.rfind('|')+4:-1])
-            self.winningPromptUser = self.promptSenders[self.winningPromptUser]
+            # self.winningPromptUser = self.promptSenders[self.winningPromptUser]
 
 
     def generate_story_message(self):

@@ -10,10 +10,59 @@ import os
 
 bot = commands.Bot(command_prefix=".", case_insensitive=True)
 storybois = None
+reference_loaded = True
 
 @bot.event
 async def on_ready():
     print(f"{bot.user} is ready!")
+    if os.path.isfile("storybois.data"):
+        global reference_loaded
+        reference_loaded = False
+
+        global storybois
+        storybois = StoryBoisEvent()
+        storybois.load_data()
+
+        channel_prompt = bot.get_channel(tokens.PROMPT_ROOM_ID)
+        channel_story = bot.get_channel(tokens.STORY_ROOM_ID)
+        channel_general = bot.get_channel(tokens.GENERAL_ROOM_ID)
+
+        try:
+            storybois.storyMessageReference = await channel_story.fetch_message(storybois.storyMessageReferenceID)
+        except:
+            pass
+
+        try:
+            storybois.winnerMessageReference = await channel_prompt.fetch_message(storybois.winnerMessageReferenceID)
+        except:
+            pass
+
+        try:
+            storybois.votingMessageReference = await channel_prompt.fetch_message(storybois.votingMessageReferenceID)
+        except:
+            pass
+
+        for i in range(3):
+            try:
+                storybois.promptThemeMessageReference.append(await channel_prompt.fetch_message(storybois.promptThemeMessageReferenceID[i]))
+            except:
+                try:
+                    storybois.promptThemeMessageReference.append(await channel_story.fetch_message(storybois.promptThemeMessageReferenceID[i]))
+                except:
+                    try:
+                        storybois.promptThemeMessageReference.append(await channel_general.fetch_message(storybois.promptThemeMessageReferenceID[i]))
+                    except:
+                        pass
+
+        for i in range(4):
+            storybois.promptMessagesReference.append(await channel_prompt.fetch_message(storybois.promptMessagesReferenceID[i]))
+        
+        reference_loaded = True
+        print("MESSAGE REFERENCES LOADED!")
+
+
+        
+        
     
 
 @bot.event
@@ -21,9 +70,11 @@ async def on_message(message):
     if message.author == bot.user:
         return
     
+    # if not reference_loaded and channel.id in[tokens.PROMPT_ROOM_ID, tokens.STORY_ROOM_ID]:
+    #     await message.delete()
 
     # Handling prompt sending and voting state
-    if message.channel.id == tokens.PROMPT_ROOM_ID:
+    if message.channel.id == tokens.PROMPT_ROOM_ID and reference_loaded:
         await message.delete()
         await bot.process_commands(message)
 
@@ -31,11 +82,10 @@ async def on_message(message):
         if not message.content.startswith(".") and storybois != None:
             if storybois.currentState == "prompt":
                 storybois.add_prompt(message.content, message.author.id)
-                storybois.promptSenders[message.author.id] = message.author # Need this for us to be able to reference the winner prompt author
                 bot.dispatch("refresh_prompt")
     
     # Handling story state
-    elif message.channel.id == tokens.STORY_ROOM_ID:
+    elif message.channel.id == tokens.STORY_ROOM_ID and reference_loaded:
         await message.delete()
         await bot.process_commands(message)
 
@@ -43,6 +93,8 @@ async def on_message(message):
             if storybois.currentState == "story":
                 storybois.user_to_story_link[f"{message.author.mention}"] = message.content
                 bot.dispatch("refresh_story_message")
+                storybois.save_data()
+
 
 # This function is responsible for updating the time left
 # Check every hour if its a new day ()
@@ -107,11 +159,8 @@ async def create(ctx, user: discord.Member, *, theme):
         bot.dispatch("create_storybois_event", theme, user)
 
         bot.dispatch("send_event_main_message", tokens.STORY_ROOM_ID)
-        bot.dispatch("send_event_main_message", tokens.PROMPT_ROOM_ID)
         bot.dispatch("send_event_main_message", tokens.GENERAL_ROOM_ID)
-
-        # Generating the needed text messages to a room
-        bot.dispatch("generating_prompt_message_references", tokens.PROMPT_ROOM_ID)
+        bot.dispatch("send_event_main_message", tokens.PROMPT_ROOM_ID) # Also generates Prompt messages
 
     else:
         await ctx.send(f"`Event already started with the theme: {storybois.theme}`")
@@ -158,12 +207,13 @@ async def delete(ctx):
         for message in storybois.promptThemeMessageReference:
             await message.delete()
 
-        for message in storybois.winnerMessageReference:
-            await message.delete()
 
-        # Voting and story message only have 1 instance
+        if storybois.winnerMessageReference != None:
+            await storybois.winnerMessageReference.delete()
+
         if storybois.votingMessageReference != None:
             await storybois.votingMessageReference.delete()
+
         if storybois.storyMessageReference != None:
             await storybois.storyMessageReference.delete()
 
@@ -189,6 +239,7 @@ async def prompt(ctx, days):
         storybois.timePrompt = int(days)
         if storybois.currentState == "prompt":
             bot.dispatch("refresh_event_main_message")
+            storybois.save_data()
 
 # Changes time left in Voting state. (in days)
 # .event edit vote {DAYS}
@@ -201,6 +252,7 @@ async def vote(ctx, days):
         if storybois.currentState == "voting":
             bot.dispatch("refresh_event_main_message")
             bot.dispatch("refresh_vote_message")
+            storybois.save_data()
 
 # Changes time left in Story Submission state. (in days)
 # .event edit story {DAYS}
@@ -213,6 +265,7 @@ async def story(ctx, days):
         if storybois.currentState == "story":
             bot.dispatch("refresh_event_main_message")
             bot.dispatch("refresh_story_message")
+            storybois.save_data()
 
 
 
@@ -245,10 +298,13 @@ async def on_enable_message(channelID):
 @bot.event
 async def on_winner_selected(channelID):
     channel = bot.get_channel(channelID)
+    winningPromptUser = await bot.fetch_user(storybois.winningPromptUser)
 
     embed=discord.Embed(title=f"The winning prompt for the theme: **{storybois.theme}**", description=f"{storybois.winningPrompt}", color=discord.Color.dark_gold())
-    embed.set_thumbnail(url=storybois.winningPromptUser.avatar_url)
-    storybois.winnerMessageReference.append(await channel.send(embed=embed))
+    embed.set_thumbnail(url=winningPromptUser.avatar_url)
+    msg = await channel.send(embed=embed)
+    storybois.winnerMessageReference = msg
+    storybois.winnerMessageReferenceID = msg.id
 
     bot.dispatch("create_story_message",tokens.STORY_ROOM_ID)
 
@@ -258,33 +314,40 @@ async def on_winner_selected(channelID):
 @bot.event
 async def on_send_event_main_message(channelID):
     channel = bot.get_channel(channelID)
+    themeUser = await bot.fetch_user(storybois.themeUser)
 
-    embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.blue())
-    embed.set_thumbnail(url=storybois.themeUser.avatar_url)
+    if channelID == tokens.PROMPT_ROOM_ID:
+        bot.dispatch("generating_prompt_message_references", tokens.PROMPT_ROOM_ID)
+
+    embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {themeUser.mention}", color=discord.Color.blue())
+    embed.set_thumbnail(url=themeUser.avatar_url)
     # embed.set_footer(text=f"Event created by: {ctx.author.name}")
     embed.set_footer(text=f"Voting starts in: {storybois.timePrompt} day")
-    storybois.promptThemeMessageReference.append(await channel.send(embed=embed))
+    msg = await channel.send(embed=embed)
+    storybois.promptThemeMessageReference.append(msg)
+    storybois.promptThemeMessageReferenceID.append(msg.id)
 
 
 @bot.event
 async def on_refresh_event_main_message():
+    themeUser = await bot.fetch_user(storybois.themeUser)
     if (storybois.currentState == "prompt"):
-        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.blue())
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {themeUser.mention}", color=discord.Color.blue())
         embed.set_footer(text=f"Voting starts in: {storybois.timePrompt} day")
 
     elif storybois.currentState == "voting":
-        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.dark_blue())
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {themeUser.mention}", color=discord.Color.dark_blue())
         embed.set_footer(text=f"Voting ends in: {storybois.timeVote} day")
     
     elif storybois.currentState == "story":
-        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.green())
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.green())
         embed.set_footer(text=f"Time remaining to send stories: {storybois.timeStory} day")
     
     else:
-        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.red())
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.red())
         embed.set_footer(text=f"Event ended!")
     
-    embed.set_thumbnail(url=storybois.themeUser.avatar_url)
+    embed.set_thumbnail(url=themeUser.avatar_url)
     for message in storybois.promptThemeMessageReference:
         await message.edit(embed=embed)
 
@@ -308,14 +371,12 @@ async def on_generating_prompt_message_references(channelId):
     # storybois.promptThemeMessageReference = message
     # await message.edit(content=storybois.generate_prompt_main_message())
 
-    message = await channel.send(".")
-    storybois.promptMessagesReference.append(message)
-    message = await  channel.send(".")
-    storybois.promptMessagesReference.append(message)
-    message = await channel.send(".")
-    storybois.promptMessagesReference.append(message)
-    message = await channel.send(".")
-    storybois.promptMessagesReference.append(message)
+    for i in range(4):
+        message = await channel.send(".")
+        storybois.promptMessagesReference.append(message)
+        storybois.promptMessagesReferenceID.append(message.id)
+    
+    storybois.save_data()
 
 
 # Regenerate the prompt messages to update a change
@@ -344,7 +405,7 @@ async def on_create_storybois_event(theme, user):
     storybois.promptMessagesReference = []
     storybois.winnerMessageReference = []
     
-    storybois.themeUser = user
+    storybois.themeUser = user.id
 
     update_time.start() # Start timer
 
@@ -353,7 +414,10 @@ async def on_send_vote_message(channelID):
     channel = bot.get_channel(channelID)
 
     embed=discord.Embed(title="Voting started!", description=f"Vote for prompts you like!\nTime left: **{storybois.timeVote} day**", color=discord.Color.green())
-    storybois.votingMessageReference = await channel.send(embed=embed)
+    msg = await channel.send(embed=embed)
+    storybois.votingMessageReference = msg
+    storybois.votingMessageReferenceID = msg.id
+    storybois.save_data()
 
     for i in range(len(storybois.prompts)):
         await storybois.votingMessageReference.add_reaction(number_to_emoji[i])
@@ -385,6 +449,7 @@ async def on_count_votes(channelID):
     print(reactionList)
     storybois.select_winner(reactionList)
 
+    storybois.save_data()
     bot.dispatch("winner_selected", channelID) # Also generater story message
     bot.dispatch("refresh_event_main_message") # Need to update main event message with prompt
 
@@ -395,7 +460,10 @@ async def on_create_story_message(channelID):
 
     prompt_and_time_left = f"Prompt: **{storybois.winningPrompt}**\nTime left: **{storybois.timeStory} day**\n\n"
     embed=discord.Embed(title=f"Theme: **{storybois.theme}**", description=prompt_and_time_left, color=discord.colour.Color.dark_green())
-    storybois.storyMessageReference = await channel.send(embed=embed)
+    msg = await channel.send(embed=embed)
+    storybois.storyMessageReference = msg
+    storybois.storyMessageReferenceID = msg.id
+    storybois.save_data()
 
 @bot.event
 async def on_refresh_story_message():
