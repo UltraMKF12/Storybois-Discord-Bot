@@ -1,5 +1,6 @@
 from number_to_emoji import number_to_emoji
 import random
+from replit import db
 
 class StoryBoisEvent:
     eventsRunning = 0
@@ -15,8 +16,10 @@ class StoryBoisEvent:
 
         # Need to separate the theme announcement from the user submitted prompts. Messages have a 2000 character limit.
         # These variables that hold message Reference links
-        self.promptThemeMessageReference = None
+        self.promptThemeMessageReference = []
         self.promptMessagesReference = []
+        self.winnerMessageReference = []
+
         self.storyMessageReference = None
         self.votingMessageReference = None
 
@@ -26,6 +29,7 @@ class StoryBoisEvent:
         self.winningPromptUser = ""
 
         self.promptSenders = {}
+        self.user_to_story_link = {}
 
         self.eventsRunning += 1
         # db["eventsRunning"] = self.eventsRunning
@@ -166,6 +170,10 @@ class StoryBoisEvent:
             self.winningPromptUser = self.promptSenders[self.winningPromptUser]
 
 
-    def generate_story_message(self, prompt):
-        # Uses story_participants dictionary with translated propmts to return a new message
-        pass
+    def generate_story_message(self):
+        message = ""
+
+        for user, story_link in self.user_to_story_link.items():
+            message += f"{user} {story_link}\n\n"
+
+        return message

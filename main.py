@@ -1,33 +1,30 @@
 import discord
-from discord import embeds
-from discord import message
 from discord.ext import commands
 import tokens
 from StoryBoisEvent import StoryBoisEvent
 from discord.ext import tasks
 import datetime
 from number_to_emoji import number_to_emoji
+from keep_alive import keep_alive
+import os
 
 bot = commands.Bot(command_prefix=".", case_insensitive=True)
 storybois = None
-#Here comes command that loads storybois from database
 
 @bot.event
 async def on_ready():
     print(f"{bot.user} is ready!")
+    
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
+    
 
-    # Only check for messages in a specific room for testing
-    if message.channel.id == tokens.BOT_TEST_ROOM_ID:
-
-        # Need to get rid of the user message as fast as possible for comfort.
+    # Handling prompt sending and voting state
+    if message.channel.id == tokens.PROMPT_ROOM_ID:
         await message.delete()
-
-        # Need this to make the bot check for commands
         await bot.process_commands(message)
 
         # We don't want commands added to the prompt list.
@@ -36,14 +33,24 @@ async def on_message(message):
                 storybois.add_prompt(message.content, message.author.id)
                 storybois.promptSenders[message.author.id] = message.author # Need this for us to be able to reference the winner prompt author
                 bot.dispatch("refresh_prompt")
+    
+    # Handling story state
+    elif message.channel.id == tokens.STORY_ROOM_ID:
+        await message.delete()
+        await bot.process_commands(message)
 
-        return
+        if not message.content.startswith(".") and storybois != None:
+            if storybois.currentState == "story":
+                storybois.user_to_story_link[f"{message.author.mention}"] = message.content
+                bot.dispatch("refresh_story_message")
 
 # This function is responsible for updating the time left
 # Check every hour if its a new day ()
 @tasks.loop(hours=1)
 async def update_time():
-    if storybois != None and datetime.datetime.now().hour == 0:
+    current_time = datetime.datetime.now()
+    print(f"TIMER LOOP! - Current time(h:m:s) >> {current_time.hour}:{current_time.minute}:{current_time.second}")
+    if storybois != current_time.hour == 0:
         bot.dispatch("check_and_update_state")
     
     elif storybois == None:
@@ -91,16 +98,21 @@ async def event(ctx):
 async def create(ctx, user: discord.Member, *, theme):
     if storybois == None:
         print(f".event create {user} {theme}")
+        update_time.cancel() # Start the timer to check for a new day
+
+        bot.dispatch("disable_message", tokens.STORY_ROOM_ID)
+        bot.dispatch("enable_message", tokens.PROMPT_ROOM_ID)
 
         # Create or Load event class
         bot.dispatch("create_storybois_event", theme, user)
 
-        bot.dispatch("send_event_main_message", tokens.BOT_TEST_ROOM_ID)
+        bot.dispatch("send_event_main_message", tokens.STORY_ROOM_ID)
+        bot.dispatch("send_event_main_message", tokens.PROMPT_ROOM_ID)
+        bot.dispatch("send_event_main_message", tokens.GENERAL_ROOM_ID)
 
         # Generating the needed text messages to a room
-        bot.dispatch("generating_prompt_message_references", tokens.BOT_TEST_ROOM_ID)
+        bot.dispatch("generating_prompt_message_references", tokens.PROMPT_ROOM_ID)
 
-        update_time.cancel() # Start the timer to check for a new day
     else:
         await ctx.send(f"`Event already started with the theme: {storybois.theme}`")
 
@@ -112,7 +124,6 @@ async def create(ctx, user: discord.Member, *, theme):
 async def next(ctx):
     print(".event next")
     bot.dispatch("check_and_update_state")
-    bot.dispatch("refresh_prompt")
 
 
 # Ends an event
@@ -137,18 +148,27 @@ async def delete(ctx):
     update_time.stop() # Stop updating the timer
     global storybois
     #Remove instance from database HERE
-    await storybois.promptThemeMessageReference.delete()
-    for message in storybois.promptMessagesReference:
-        await message.delete()
-    
-    if storybois.votingMessageReference != None:
-        await storybois.votingMessageReference.delete()
-    
-    if storybois.storyMessageReference != None:
-        await storybois.storyMessageReference.delete()
 
-    bot.dispatch("event_deleted", ctx, storybois.theme)
-    storybois = None
+    if storybois != None:
+        # Removing multiple messages for prompt entry
+        for message in storybois.promptMessagesReference:
+            await message.delete()
+
+        # These messages are sent to multiple channels
+        for message in storybois.promptThemeMessageReference:
+            await message.delete()
+
+        for message in storybois.winnerMessageReference:
+            await message.delete()
+
+        # Voting and story message only have 1 instance
+        if storybois.votingMessageReference != None:
+            await storybois.votingMessageReference.delete()
+        if storybois.storyMessageReference != None:
+            await storybois.storyMessageReference.delete()
+
+        bot.dispatch("event_deleted", ctx, storybois.theme)
+        storybois = None
 
 
 
@@ -167,7 +187,8 @@ async def prompt(ctx, days):
     if storybois != None:
         print(f".event edit prompt {days}")
         storybois.timePrompt = int(days)
-        bot.dispatch("refresh_event_main_message")
+        if storybois.currentState == "prompt":
+            bot.dispatch("refresh_event_main_message")
 
 # Changes time left in Voting state. (in days)
 # .event edit vote {DAYS}
@@ -177,7 +198,8 @@ async def vote(ctx, days):
     if storybois != None:
         print(f".event edit vote {days}")
         storybois.timeVote = int(days)
-        if(storybois.currentState == "voting"):
+        if storybois.currentState == "voting":
+            bot.dispatch("refresh_event_main_message")
             bot.dispatch("refresh_vote_message")
 
 # Changes time left in Story Submission state. (in days)
@@ -188,7 +210,9 @@ async def story(ctx, days):
     if storybois != None:
         print(f".event edit story {days}")
         storybois.timeStory = int(days)
-        #REFRESH STORY MESSAGE
+        if storybois.currentState == "story":
+            bot.dispatch("refresh_event_main_message")
+            bot.dispatch("refresh_story_message")
 
 
 
@@ -201,7 +225,8 @@ async def story(ctx, days):
 # This is for disabling message sending
 # bot.dispatch("disable_message", message.channel)
 @bot.event
-async def on_disable_message(channel):
+async def on_disable_message(channelID):
+    channel = bot.get_channel(channelID)
     print(f"Disabled message sending in {channel.name}")
     await channel.set_permissions(channel.guild.default_role, send_messages=False)
 
@@ -209,7 +234,8 @@ async def on_disable_message(channel):
 # This is for enabling message sending
 # bot.dispatch("enable_message", message.channel)
 @bot.event
-async def on_enable_message(channel):
+async def on_enable_message(channelID):
+    channel = bot.get_channel(channelID)
     print(f"Enabled message sending in {channel.name}")
     await channel.set_permissions(channel.guild.default_role, send_messages=True)
 
@@ -222,7 +248,9 @@ async def on_winner_selected(channelID):
 
     embed=discord.Embed(title=f"The winning prompt for the theme: **{storybois.theme}**", description=f"{storybois.winningPrompt}", color=discord.Color.dark_gold())
     embed.set_thumbnail(url=storybois.winningPromptUser.avatar_url)
-    await channel.send(embed=embed)
+    storybois.winnerMessageReference.append(await channel.send(embed=embed))
+
+    bot.dispatch("create_story_message",tokens.STORY_ROOM_ID)
 
 
 # Handles things needed when an event is created. Currently: Embeds
@@ -235,19 +263,30 @@ async def on_send_event_main_message(channelID):
     embed.set_thumbnail(url=storybois.themeUser.avatar_url)
     # embed.set_footer(text=f"Event created by: {ctx.author.name}")
     embed.set_footer(text=f"Voting starts in: {storybois.timePrompt} day")
-    storybois.promptThemeMessageReference = await channel.send(embed=embed)
+    storybois.promptThemeMessageReference.append(await channel.send(embed=embed))
 
 
 @bot.event
 async def on_refresh_event_main_message():
-    embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.blue())
-    embed.set_thumbnail(url=storybois.themeUser.avatar_url)
-    # embed.set_footer(text=f"Event created by: {ctx.author.name}")
     if (storybois.currentState == "prompt"):
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.blue())
         embed.set_footer(text=f"Voting starts in: {storybois.timePrompt} day")
+
+    elif storybois.currentState == "voting":
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}", color=discord.Color.dark_blue())
+        embed.set_footer(text=f"Voting ends in: {storybois.timeVote} day")
+    
+    elif storybois.currentState == "story":
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.green())
+        embed.set_footer(text=f"Time remaining to send stories: {storybois.timeStory} day")
+    
     else:
-        embed.set_footer(text=f"Voting started!")
-    await storybois.promptThemeMessageReference.edit(embed=embed)
+        embed=discord.Embed(title=f"**Event created!**", description=f"Theme >> **{storybois.theme}** {storybois.themeUser.mention}\nPrompt >> **{storybois.winningPrompt}**", color=discord.Color.red())
+        embed.set_footer(text=f"Event ended!")
+    
+    embed.set_thumbnail(url=storybois.themeUser.avatar_url)
+    for message in storybois.promptThemeMessageReference:
+        await message.edit(embed=embed)
 
 # Handles things needed when an event is deleted. Currently: Embeds
 # bot.dispatch("event_deleted", theme)
@@ -299,8 +338,15 @@ async def on_create_storybois_event(theme, user):
     
     global storybois
     storybois = StoryBoisEvent(theme=theme)
-    storybois.promptMessagesReference = [] # Need this, because for some unknown reason it updates the OLD messages. Fixes bug with .event delete
+
+    # Need this, because for some unknown reason it updates the OLD messages. Fixes bug with .event delete
+    storybois.promptThemeMessageReference = []
+    storybois.promptMessagesReference = []
+    storybois.winnerMessageReference = []
+    
     storybois.themeUser = user
+
+    update_time.start() # Start timer
 
 @bot.event
 async def on_send_vote_message(channelID):
@@ -339,7 +385,39 @@ async def on_count_votes(channelID):
     print(reactionList)
     storybois.select_winner(reactionList)
 
-    bot.dispatch("winner_selected", channelID)
+    bot.dispatch("winner_selected", channelID) # Also generater story message
+    bot.dispatch("refresh_event_main_message") # Need to update main event message with prompt
+
+
+@bot.event
+async def on_create_story_message(channelID):
+    channel = bot.get_channel(channelID)
+
+    prompt_and_time_left = f"Prompt: **{storybois.winningPrompt}**\nTime left: **{storybois.timeStory} day**\n\n"
+    embed=discord.Embed(title=f"Theme: **{storybois.theme}**", description=prompt_and_time_left, color=discord.colour.Color.dark_green())
+    storybois.storyMessageReference = await channel.send(embed=embed)
+
+@bot.event
+async def on_refresh_story_message():
+    global storybois
+
+    # This also deletes the storybois class
+    if(storybois.currentState == "end"):
+        prompt_and_time_left = f"Prompt: **{storybois.winningPrompt}**\n\n\n"
+        people = storybois.generate_story_message()
+        description = prompt_and_time_left + people
+
+        embed=discord.Embed(title=f"Theme: **{storybois.theme}**", description=description, color=discord.colour.Color.dark_red())
+        await storybois.storyMessageReference.edit(embed=embed)
+        storybois = None
+
+    else:
+        prompt_and_time_left = f"Prompt: **{storybois.winningPrompt}**\nTime left: **{storybois.timeStory} day**\n\n\n"
+        people = storybois.generate_story_message()
+        description = prompt_and_time_left + people
+
+        embed=discord.Embed(title=f"Theme: **{storybois.theme}**", description=description, color=discord.colour.Color.dark_green())
+        await storybois.storyMessageReference.edit(embed=embed)
 
 
 @bot.event
@@ -356,28 +434,31 @@ async def on_check_and_update_state():
         bot.dispatch("refresh_prompt")
 
         if storybois.votingMessageReference == None:
-            bot.dispatch("send_vote_message", tokens.BOT_TEST_ROOM_ID)
+            bot.dispatch("send_vote_message", tokens.PROMPT_ROOM_ID)
             bot.dispatch("disable_message", tokens.PROMPT_ROOM_ID)
         else:
             bot.dispatch("refresh_vote_message")
 
     elif state == "story":
+        bot.dispatch("refresh_event_main_message")
+
         if storybois.storyMessageReference == None:
-            #MAKE STORY MESSAGE
-            bot.dispatch("count_votes", tokens.BOT_TEST_ROOM_ID)
+            bot.dispatch("count_votes", tokens.PROMPT_ROOM_ID) # Generates winning prompt message, that generates story message
             bot.dispatch("vote_end_message_change")
             bot.dispatch("enable_message", tokens.STORY_ROOM_ID)
         else:
-            #UPDATE STORY MESSAGE
-            pass
+            bot.dispatch("refresh_story_message")
+
 
     elif state == "end":
+        bot.dispatch("refresh_event_main_message")
+
         update_time.stop() # Stop updating the timer
-        storybois = None
         bot.dispatch("disable_message", tokens.STORY_ROOM_ID)
-        #Some Kind of EVENT ENDED MESSAGE
+        bot.dispatch("refresh_story_message") # For making story message red colored also deletes storybois class
 
 
 # Discord SLASH command plugin
 # https://discord-py-slash-command.readthedocs.io/en/latest/quickstart.html
-bot.run(tokens.DISCORD_TOKEN)
+keep_alive()
+bot.run(os.environ['TOKEN'])
