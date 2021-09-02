@@ -7,15 +7,26 @@ import datetime
 from number_to_emoji import number_to_emoji
 from keep_alive import keep_alive
 import os
+from replit import db
+
 
 bot = commands.Bot(command_prefix=".", case_insensitive=True)
 storybois = None
 reference_loaded = True
 
+event_active = False
+
+try:
+  event_active = db["event"]
+except:
+  event_active = False
+
 @bot.event
 async def on_ready():
     print(f"{bot.user} is ready!")
-    if os.path.isfile("storybois.data"):
+    if event_active:
+
+        await bot.change_presence(status=discord.Status.idle, activity=discord.Game("Loading References"))
         global reference_loaded
         reference_loaded = False
 
@@ -59,6 +70,8 @@ async def on_ready():
         
         reference_loaded = True
         print("MESSAGE REFERENCES LOADED!")
+        update_time.start()
+        await bot.change_presence(status=discord.Status.online, activity=None)
 
 
         
@@ -83,6 +96,7 @@ async def on_message(message):
             if storybois.currentState == "prompt":
                 storybois.add_prompt(message.content, message.author.id)
                 bot.dispatch("refresh_prompt")
+                # storybois.save_data() # It saves in add_prompt()
     
     # Handling story state
     elif message.channel.id == tokens.STORY_ROOM_ID and reference_loaded:
@@ -101,6 +115,7 @@ async def on_message(message):
 @tasks.loop(hours=1)
 async def update_time():
     current_time = datetime.datetime.now()
+    storybois.save_data()
     print(f"TIMER LOOP! - Current time(h:m:s) >> {current_time.hour}:{current_time.minute}:{current_time.second}")
     if storybois != current_time.hour == 0:
         bot.dispatch("check_and_update_state")
@@ -123,14 +138,16 @@ async def prompt(ctx):
 # .prompt edit {INDEX} {NEW PROMPT}
 @prompt.command()
 async def edit(ctx, index, *, message):
-    storybois.edit_prompt(message, str(ctx.author.id), int(index))
-    bot.dispatch("refresh_prompt")
+    if storybois.currentState == "prompt":
+        storybois.edit_prompt(message, str(ctx.author.id), int(index))
+        bot.dispatch("refresh_prompt")
 
 # .prompt delete {INDEX}
 @prompt.command()
 async def delete(ctx, index):
-    storybois.delete_prompt(str(ctx.author.id), int(index))
-    bot.dispatch("refresh_prompt")
+    if storybois.currentState == "prompt":
+        storybois.delete_prompt(str(ctx.author.id), int(index))
+        bot.dispatch("refresh_prompt")
 
 
 
@@ -162,6 +179,7 @@ async def create(ctx, user: discord.Member, *, theme):
         bot.dispatch("send_event_main_message", tokens.GENERAL_ROOM_ID)
         bot.dispatch("send_event_main_message", tokens.PROMPT_ROOM_ID) # Also generates Prompt messages
 
+        db["event"] = True
     else:
         await ctx.send(f"`Event already started with the theme: {storybois.theme}`")
 
@@ -184,6 +202,7 @@ async def end(ctx):
     print(".event end")
     global storybois
     storybois = None
+    db["event"] = False
 
 
 
@@ -219,6 +238,7 @@ async def delete(ctx):
 
         bot.dispatch("event_deleted", ctx, storybois.theme)
         storybois = None
+        db["event"] = False
 
 
 
@@ -242,12 +262,12 @@ async def prompt(ctx, days):
             storybois.save_data()
 
 # Changes time left in Voting state. (in days)
-# .event edit vote {DAYS}
+# .event edit voting {DAYS}
 @edit.command()
 @commands.has_role(tokens.EVENT_ROLE_ID)
-async def vote(ctx, days):
+async def voting(ctx, days):
     if storybois != None:
-        print(f".event edit vote {days}")
+        print(f".event edit voting {days}")
         storybois.timeVote = int(days)
         if storybois.currentState == "voting":
             bot.dispatch("refresh_event_main_message")
@@ -281,7 +301,14 @@ async def story(ctx, days):
 async def on_disable_message(channelID):
     channel = bot.get_channel(channelID)
     print(f"Disabled message sending in {channel.name}")
-    await channel.set_permissions(channel.guild.default_role, send_messages=False)
+
+    overwrite = discord.PermissionOverwrite()
+    overwrite.send_messages = False
+
+    overwrite.embed_links = False
+    overwrite.attach_files = False
+    overwrite.add_reactions = False
+    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
 
 
 # This is for enabling message sending
@@ -290,7 +317,13 @@ async def on_disable_message(channelID):
 async def on_enable_message(channelID):
     channel = bot.get_channel(channelID)
     print(f"Enabled message sending in {channel.name}")
-    await channel.set_permissions(channel.guild.default_role, send_messages=True)
+    overwrite = discord.PermissionOverwrite()
+    overwrite.send_messages = True
+
+    overwrite.embed_links = False
+    overwrite.attach_files = False
+    overwrite.add_reactions = False
+    await channel.set_permissions(channel.guild.default_role, overwrite=overwrite)
 
 
 # Send a message to the prompt channel to notify everyone that a winner has been selected
@@ -478,6 +511,7 @@ async def on_refresh_story_message():
         embed=discord.Embed(title=f"Theme: **{storybois.theme}**", description=description, color=discord.colour.Color.dark_red())
         await storybois.storyMessageReference.edit(embed=embed)
         storybois = None
+        db["event"] = False
 
     else:
         prompt_and_time_left = f"Prompt: **{storybois.winningPrompt}**\nTime left: **{storybois.timeStory} day**\n\n\n"
@@ -494,10 +528,13 @@ async def on_check_and_update_state():
     state = storybois.update_time()
 
     if state == "prompt":
+        # await bot.change_presence(status=discord.Status.dnd, activity=discord.Game("Prompt"))
         bot.dispatch("refresh_event_main_message")
         bot.dispatch("refresh_prompt")
 
+
     elif state == "voting":
+        # await bot.change_presence(status=discord.Status.dnd, activity=discord.Game("Voting"))
         bot.dispatch("refresh_event_main_message")
         bot.dispatch("refresh_prompt")
 
@@ -507,7 +544,9 @@ async def on_check_and_update_state():
         else:
             bot.dispatch("refresh_vote_message")
 
+
     elif state == "story":
+        # await bot.change_presence(status=discord.Status.dnd, activity=discord.Game("Story"))
         bot.dispatch("refresh_event_main_message")
 
         if storybois.storyMessageReference == None:
@@ -516,9 +555,11 @@ async def on_check_and_update_state():
             bot.dispatch("enable_message", tokens.STORY_ROOM_ID)
         else:
             bot.dispatch("refresh_story_message")
+        
 
 
     elif state == "end":
+        # await bot.change_presence(status=discord.Status.online, activity=None)
         bot.dispatch("refresh_event_main_message")
 
         update_time.stop() # Stop updating the timer

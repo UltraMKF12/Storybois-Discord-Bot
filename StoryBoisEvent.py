@@ -1,10 +1,9 @@
 from number_to_emoji import number_to_emoji
 import random
-import pickle
-import os
+from replit import db
+
 
 class StoryBoisEvent:
-    eventsRunning = 0
     states = ("prompt", "voting", "story", "end")
 
     def __init__(self, timePrompt=1, timeVote=1, timeStory=7, theme=""):
@@ -30,26 +29,18 @@ class StoryBoisEvent:
         self.winningPromptUser = ""
 
         self.user_to_story_link = {}
-
-        self.eventsRunning += 1
         
-
         self.promptThemeMessageReferenceID = []
         self.promptMessagesReferenceID = []
 
         self.winnerMessageReferenceID = None
         self.storyMessageReferenceID = None
         self.votingMessageReferenceID = None
-
-        self.loaded = False
     
 
     def __del__(self):
         print("Class destroyed")
-        self.eventsRunning -= 1
-
-        if os.path.isfile("storybois.data"):
-            os.remove("storybois.data")
+        self.reset_data()
 
 
     # Need to update the current state every day at 00:00. We need this to lock channels, start voting, and start story submissions.
@@ -74,54 +65,59 @@ class StoryBoisEvent:
             return self.currentState
 
     def save_data(self):
-        self.database = {
-            "timePrompt": self.timePrompt,
-            "timeVote": self.timeVote,
-            "timeStory": self.timeStory,
-            "prompts": self.prompts,
-            "currentState": self.currentState,
-            "promptThemeMessageReferenceID": self.promptThemeMessageReferenceID,
-            "promptMessagesReferenceID": self.promptMessagesReferenceID,
-            "winnerMessageReferenceID": self.winnerMessageReferenceID,
-            "storyMessageReferenceID": self.storyMessageReferenceID,
-            "votingMessageReferenceID": self.votingMessageReferenceID,
-            "theme": self.theme,
-            "themeUser": self.themeUser,
-            "winningPrompt": self.winningPrompt,
-            "winningPromptUser": self.winningPromptUser,
-            "user_to_story_link": self.user_to_story_link,
-        }
-
-        with open("storybois.data", "wb") as file:
-            pickle.dump(self.database, file)
+        print("--Data Saved--")
+        db["timePrompt"] = self.timePrompt
+        db["timeVote"] = self.timeVote
+        db["timeStory"] = self.timeStory
+        db["prompts"] = self.prompts
+        db["currentState"] = self.currentState
+        db["promptThemeMessageReferenceID"] = self.promptThemeMessageReferenceID
+        db["promptMessagesReferenceID"] = self.promptMessagesReferenceID
+        db["winnerMessageReferenceID"] = self.winnerMessageReferenceID
+        db["storyMessageReferenceID"] = self.storyMessageReferenceID
+        db["votingMessageReferenceID"] = self.votingMessageReferenceID
+        db["theme"] = self.theme
+        db["themeUser"] = self.themeUser
+        db["winningPrompt"] = self.winningPrompt
+        db["winningPromptUser"] = self.winningPromptUser
+        db["user_to_story_link"] = self.user_to_story_link
 
 
     def load_data(self):
-        if os.path.isfile("storybois.data"):
-            with open("storybois.data", "rb") as file:
-                print("Storybois event data found and loaded")
-                self.database = pickle.load(file)
-                self.loaded = True
+            self.timePrompt = db["timePrompt"]
+            self.timeVote = db["timeVote"]
+            self.timeStory = db["timeStory"]
+            self.prompts = db["prompts"]
+            self.currentState = db["currentState"]
+            self.promptThemeMessageReferenceID = db["promptThemeMessageReferenceID"]
+            self.promptMessagesReferenceID = db["promptMessagesReferenceID"]
+            self.winnerMessageReferenceID = db["winnerMessageReferenceID"]
+            self.storyMessageReferenceID = db["storyMessageReferenceID"]
+            self.votingMessageReferenceID = db["votingMessageReferenceID"]
+            self.theme = db["theme"]
+            self.themeUser = db["themeUser"]
+            self.winningPrompt = db["winningPrompt"]
+            self.winningPromptUser = db["winningPromptUser"]
+            self.user_to_story_link = db["user_to_story_link"]
+    
 
-            self.timePrompt = self.database["timePrompt"]
-            self.timeVote = self.database["timeVote"]
-            self.timeStory = self.database["timeStory"]
-            self.prompts = self.database["prompts"]
-            self.currentState = self.database["currentState"]
-            self.promptThemeMessageReferenceID = self.database["promptThemeMessageReferenceID"]
-            self.promptMessagesReferenceID = self.database["promptMessagesReferenceID"]
-            self.winnerMessageReferenceID = self.database["winnerMessageReferenceID"]
-            self.storyMessageReferenceID = self.database["storyMessageReferenceID"]
-            self.votingMessageReferenceID = self.database["votingMessageReferenceID"]
-            self.theme = self.database["theme"]
-            self.themeUser = self.database["themeUser"]
-            self.winningPrompt = self.database["winningPrompt"]
-            self.winningPromptUser = self.database["winningPromptUser"]
-            self.user_to_story_link = self.database["user_to_story_link"]
-            
-        else:
-            print("Couldn't load event data from file!")
-
+    def reset_data(self):
+        del db["timePrompt"]
+        del db["timeVote"]
+        del db["timeStory"]
+        del db["prompts"]
+        del db["currentState"]
+        del db["promptThemeMessageReferenceID"]
+        del db["promptMessagesReferenceID"]
+        del db["winnerMessageReferenceID"]
+        del db["storyMessageReferenceID"]
+        del db["votingMessageReferenceID"]
+        del db["theme"]
+        del db["themeUser"]
+        del db["winningPrompt"]
+        del db["winningPromptUser"]
+        del db["user_to_story_link"]
+        db["event"] = False
 
     # ------------------------
     # | Prompt state Methods |
