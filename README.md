@@ -14,3 +14,4 @@ Only 20 prompts are allowed (discord reaction limit), but the bot won't stop add
 **To add:**\
 Better prompt message that supports unlimited characters. The current one works by sending 4 "." messages, then updating them with the prompt. Only allows less than 8k characters.
 
+![Bot in voting period](Images/image.png)
