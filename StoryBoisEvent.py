@@ -117,6 +117,7 @@ class StoryBoisEvent:
         del db["winningPrompt"]
         del db["winningPromptUser"]
         del db["user_to_story_link"]
+        del db["current_day"] # Need to delete this value to not cause an issue in the future
         db["event"] = False
 
     # ------------------------
