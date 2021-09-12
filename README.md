@@ -16,3 +16,4 @@ Better prompt message that supports unlimited characters. The current one works 
 Better way to specify where the event messages are supposed to be sent.
 
 ![Bot in voting period](Images/image.png)
+![Bot in story submission period](Images/image2.png)
