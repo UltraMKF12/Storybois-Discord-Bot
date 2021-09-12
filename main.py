@@ -117,8 +117,19 @@ async def update_time():
     current_time = datetime.datetime.now()
     storybois.save_data()
     print(f"TIMER LOOP! - Current time(h:m:s) >> {current_time.hour}:{current_time.minute}:{current_time.second}")
-    if storybois != current_time.hour == 0:
+
+    # A system to prevent the bug that happens when replit restarts at 0 hours. (it skips days)
+    # This checks if the current day is something else
+    current_day = current_time.day
+    try:
+        database_day = db["current_day"]
+    except:
+        db["current_day"] = current_day
+        database_day = current_day
+
+    if storybois != current_time.hour == 0 and database_day != current_day:
         bot.dispatch("check_and_update_state")
+        db["current_day"] = current_day
     
     elif storybois == None:
         update_time.stop()
