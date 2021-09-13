@@ -8,7 +8,9 @@ Then everyone sends stories to that prompt.
 
 **Known bugs and problems:**\
 Starting an event at 0:00 will instantly subtract a day from the prompt state. (Currently it instantly ends it) (The September-13 Bugfix maybe solves this problem.)
+\
 Currrent prompt message system only works with less than 8k characters.
+\
 Only 20 prompts are allowed (discord reaction limit), but the bot won't stop adding prompts to the list after 20. This can cause a bug.
 
 **To add:**\
