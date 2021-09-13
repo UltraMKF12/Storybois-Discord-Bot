@@ -12,8 +12,8 @@ Then everyone sends stories to that prompt.
 - Only 20 prompts are allowed (discord reaction limit), but the bot won't stop adding prompts to the list after 20. This can cause a bug.
 
 **To add:**
--Better prompt message that supports unlimited characters. The current one works by sending 4 "." messages, then updating them with the prompt. Only allows less than 8k characters.
--Better way to specify where the event messages are supposed to be sent.
+- Better prompt message that supports unlimited characters. The current one works by sending 4 "." messages, then updating them with the prompt. Only allows less than 8k characters.
+- Better way to specify where the event messages are supposed to be sent.
 
 ![Bot in voting period](Images/image.png)
 ![Bot in story submission period](Images/image2.png)
