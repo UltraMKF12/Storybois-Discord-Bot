@@ -7,7 +7,7 @@ The prompt that gets the most votes wins.
 Then everyone sends stories to that prompt.
 
 **Known bugs and problems:**\
-Starting an event at 0:00 will instantly subtract a day from the prompt state. (Currently it instantly ends it) (The September-13 Bugfix maybe solves this problem.)
+Starting an event at 0:00 will instantly subtract a day from the prompt state. (Currently it instantly ends it) **(The September-13 Bugfix maybe solves this problem.)**
 \
 Currrent prompt message system only works with less than 8k characters.
 \
